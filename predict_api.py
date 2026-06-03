@@ -105,20 +105,19 @@ def predict():
         print("END YOLO")
 
         detections = []
-
+        h_img, w_img = img.shape[:2]  # dimensions APRÈS resize/preprocess
         for box in results.boxes:
-            x, y, bw, bh = box.xywh[0].tolist()
+            x, y, bw, bh = box.xywh[0].tolist()  # centre x,y + taille en pixels
             cls_id = int(box.cls[0])
-
             detections.append({
                 "class": CLASS_NAMES.get(cls_id, f"object_{cls_id}"),
                 "class_id": cls_id,
                 "confidence": round(float(box.conf[0]), 4),
                 "bbox": {
-                    "x": round(x, 2),
-                    "y": round(y, 2),
-                    "w": round(bw, 2),
-                    "h": round(bh, 2),
+                    "x": round((x - bw / 2) / w_img * 100, 2),  # coin haut-gauche %
+                    "y": round((y - bh / 2) / h_img * 100, 2),
+                    "w": round(bw / w_img * 100, 2),
+                    "h": round(bh / h_img * 100, 2),
                 },
             })
 
