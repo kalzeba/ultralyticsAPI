@@ -6,20 +6,18 @@ import base64
 
 app = Flask(__name__)
 
-# yolo11s est plus précis que yolov8n, même vitesse sur CPU
-model = YOLO("yolo11s.pt")
+# yolov8n : déjà dans le repo (6.5MB), pas de téléchargement au démarrage
+model = YOLO("yolov8n.pt")
 model.fuse()
 CLASS_NAMES = model.names
 
 def decode_image(b64: str):
-    # Accepte avec ou sans préfixe data:image/...;base64,
     if "," in b64:
         b64 = b64.split(",", 1)[1]
     arr = np.frombuffer(base64.b64decode(b64), np.uint8)
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 def preprocess(img):
-    """CLAHE pour améliorer le contraste des photos de boutique."""
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -28,11 +26,7 @@ def preprocess(img):
 
 @app.route("/", methods=["GET"])
 def health():
-    return jsonify({
-        "status": "ok",
-        "model": "yolo11s",
-        "classes": len(CLASS_NAMES)
-    })
+    return jsonify({"status": "ok", "model": "yolov8n", "classes": len(CLASS_NAMES)})
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -40,17 +34,12 @@ def predict():
         data = request.get_json()
         if not data or "image" not in data:
             return jsonify({"error": "missing image"}), 400
-
         img = decode_image(data["image"])
         if img is None:
             return jsonify({"error": "invalid image"}), 400
-
         h, w = img.shape[:2]
         img = preprocess(img)
-
-        # conf=0.35 évite les faux positifs, iou=0.45 fusionne les doublons
         results = model(img, conf=0.35, iou=0.45, verbose=False)[0]
-
         detections = []
         for box in results.boxes:
             x, y, bw, bh = box.xywh[0].tolist()
@@ -66,8 +55,6 @@ def predict():
                     "h": round(bh / h * 100, 2),
                 },
             })
-
         return jsonify({"items": detections, "count": len(detections)})
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
