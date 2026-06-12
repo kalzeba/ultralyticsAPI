@@ -1,26 +1,23 @@
-# Build:
-# docker build -t hdnh2006/ultralyticsapi .
+# Image Python slim — ~200MB au lieu de ~8GB avec ultralytics/ultralytics
+FROM python:3.11-slim
 
-# This builds an image similar to ultralytics/ultralytics:latest image on DockerHub https://hub.docker.com/r/ultralytics/ultralytics
-# Image is CUDA-optimized for single/multi-GPU training and inference
+WORKDIR /app
 
-# Start FROM last ultralytics image https://hub.docker.com/r/ultralytics/ultralytics
-FROM ultralytics/ultralytics
+# Dépendances système minimales pour OpenCV headless
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create working directory
-WORKDIR /usr/src/app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy contents # git permission issues inside container
-COPY . /usr/src/app  
+# Pré-télécharger le modèle au build (évite le download à la 1ère requête)
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
-# Install pip packages
-RUN python3 -m pip install --upgrade pip wheel
-RUN pip install --no-cache -r requirements.txt
+COPY predict_api.py .
 
-# Run predict_api.py with TensorRT
-# CMD ["sh", "-c", "yolo export model=yolo11s.pt format="engine" imgsz=640 simplify=True device=0 batch=1 half=True && python predict_api.py --weights ${WEIGHTS:-weights/yolo11s/best.pt} --imgsz ${IMGSZ:-640} --port ${PORT:-5000} --half True"]
-# docker run --runtime nvidia --gpus all --ipc=host --network="host" -d --name ultralyticsapi hdnh2006/ultralyticsapi yolo export model=yolo11s.pt format="engine" imgsz=640 simplify=True device=0 batch=1 half=True && python predict_api.py --weights weights/yolo11s/best.engine --imgsz 640 --port 5000 --half True
+EXPOSE 5000
 
-# Run predict_api.py with OpenVINO
-# CMD ["sh", "-c", "yolo export model=yolo11s.pt format="openvino" imgsz=640 simplify=True device=0 batch=1 half=True && python predict_api.py --weights ${WEIGHTS:-weights/yolo11s/best_openvino_model} --imgsz ${IMGSZ:-640} --port ${PORT:-5000} --half True --device cpu"]
-# docker run --ipc=host --network="host" -d --name ultralyticsapi hdnh2006/ultralyticsapi yolo export model=yolo11s.pt format="openvino" imgsz=640 simplify=True device=0 batch=1 half=True && python predict_api.py --weights weights/yolo11s/best_openvino_model --imgsz 640 --port 5000 --half True --device cpu
+# 1 worker (CPU), timeout 120s pour les grosses images
+CMD ["gunicorn", "--workers", "1", "--timeout", "120", "--bind", "0.0.0.0:5000", "predict_api:app"]
